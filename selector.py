@@ -8,7 +8,8 @@ import numpy as np
 #==============================================================================
 
 class Person:
-    def __init__(self, first_name, family_name, email, phone, gender, ed, have_car, places, already_attended):
+    def __init__(self, id, first_name, family_name, email, phone, gender, ed, have_car, places, already_attended):
+        self.id = id
         self.first_name = first_name
         self.family_name = family_name
         self.email = email
@@ -18,6 +19,13 @@ class Person:
         self.have_car = have_car
         self.places = places
         self.already_attended = already_attended
+
+    @property
+    def id(self):
+        return self._id
+    @id.setter
+    def id(self, value):
+        self._id = int(value)
 
     @property
     def first_name(self):
@@ -115,44 +123,47 @@ if len(matches) > 1:
     exit(1)
 
 # Load pre-registration data
-preregistred = pd.read_excel(matches[0])
+preregistered = pd.read_excel(matches[0])
 pool = [
     Person(
-        first_name = preregistred["First name"][i],
-        family_name = preregistred["Family name"][i],
-        email = preregistred["Email Address"][i],
-        phone = preregistred["Phone number"][i],
-        gender = preregistred["Gender"][i],
-        ed = preregistred["Doctoral school"][i],
-        have_car = preregistred["Do you plan to take your car to come? (winter equipment might be required)"][i],
-        places = preregistred["How many people can you carry in your car? (besides you)"][i],
-        already_attended = preregistred["Have you attended a previous winter camp? "][i]
+        id = i+2,
+        first_name = preregistered["First name"][i],
+        family_name = preregistered["Family name"][i],
+        email = preregistered["Email Address"][i],
+        phone = preregistered["Phone number"][i],
+        gender = preregistered["Gender"][i],
+        ed = preregistered["Doctoral school"][i],
+        have_car = preregistered["Do you plan to take your car to come? (winter equipment might be required)"][i],
+        places = preregistered["How many people can you carry in your car? (besides you)"][i],
+        already_attended = preregistered["Have you attended a previous winter camp? "][i]
     )
-    for i in range(len(preregistred["First name"]))
+    for i in range(len(preregistered["First name"]))
 ]
 
 #==============================================================================
-# Manage exceptions
+# Manage config
 #==============================================================================
 
-# Load the exceptions data
-exceptions = yaml.safe_load(open("config.yaml"))
+# Load the config data
+config = yaml.safe_load(open("config.yaml"))
 
-places = exceptions["places"]
+places = config["places"]
 
-organizers = [pool[i-2] for i in exceptions["organizers"]]
+organizers = [pool[i-2] for i in config["organizers"]]
 conflicts = []
-for conflict in exceptions["conflicts"]:
+for conflict in config["conflicts"]:
     conflicts.append([pool[i-2] for i in conflict])
 groups = []
-for group in exceptions["groups"]:
+for group in config["groups"]:
     groups.append([pool[i-2] for i in group])
+
+already_selected = [pool[i-2] for i in config["registered"]] if "registered" in config else []
 
 #==============================================================================
 # Registering functions
 #==============================================================================
 
-registred = []
+registered = []
 rejected = []
 
 def remove(ppl):
@@ -179,10 +190,11 @@ def register_group(ppl):
                     register(g)
 
 def register(ppl):
-    print("+ Registred " + ppl.full_name)
+    print("+ registered " + ppl.full_name)
     remove(ppl)
     remove_conflict(ppl)
-    registred.append(ppl)
+    if ppl not in registered:
+        registered.append(ppl)
     register_group(ppl)
 
 #==============================================================================
@@ -193,6 +205,10 @@ print("\nAdding organizers:")
 for ppl in organizers:
     register(ppl)
 
+print("\nAdding already selected people:")
+for ppl in already_selected:
+    register(ppl)
+
 sits = 0
 
 # Compute the probability of a people to be selected
@@ -200,7 +216,7 @@ def compute_prob(ppl):
     prob = 1
 
     # If there is not enough sits, favor people with a car
-    if sits < len(registred):
+    if sits < len(registered):
         if not ppl.have_car:
             prob *= 1e-3 # Low probability for people without car
     
@@ -210,7 +226,7 @@ def compute_prob(ppl):
     same = 0
     other = 0
     if ppl.ed != "Other":
-        for p in registred:
+        for p in registered:
             if p.ed == ppl.ed:
                 same += 1
             else:
@@ -220,16 +236,17 @@ def compute_prob(ppl):
         prob *= other / same
 
     # Compute gender ratio
-    same = 0
-    other = 0
-    for p in registred:
-        if p.gender == ppl.gender:
-            same += 1
-        else:
-            other += 1
-    same = max(same, 1e-2)
-    other = max(other, 1e-2)    
-    prob *= other / same
+    if ppl.gender != "Non-binary":
+        same = 0
+        other = 0
+        for p in registered:
+            if p.gender == ppl.gender:
+                same += 1
+            else:
+                other += 1
+        same = max(same, 1e-2)
+        other = max(other, 1e-2)    
+        prob *= other / same
 
     # Reduce probability for people who already attended
     if ppl.already_attended:
@@ -238,7 +255,7 @@ def compute_prob(ppl):
     return prob
 
 print("\nAdding participants:")
-while len(registred) < 35:
+while len(registered) < 35:
     ids = [i for i in range(len(pool))]
     prob = [compute_prob(pool[i]) for i in ids]
 
@@ -247,8 +264,8 @@ while len(registred) < 35:
     register(pool[selected_id])
         
 # Print the final list
-print(f"\nRegistred: ({len(registred)})")
-for ppl in registred:
+print(f"\nregistered: ({len(registered)})")
+for ppl in registered:
     print(" - ", ppl.full_name)
 
 # Print the remaining people
@@ -262,28 +279,42 @@ for ppl in rejected:
 print("\nGender ratio:")
 males = 0
 females = 0
-for ppl in registred:
+for ppl in registered:
     if ppl.gender == "Male":
         males += 1
     elif ppl.gender == "Female":
         females += 1
-print(" - Males:", round(males / len(registred) * 100,1), "%")
-print(" - Females:", round(females / len(registred) * 100,1), "%")
-print(" - Non-binary:", round((len(registred) - males - females) / len(registred) * 100,1), "%")
+print(" - Males:", round(males / len(registered) * 100,1), "%")
+print(" - Females:", round(females / len(registered) * 100,1), "%")
+print(" - Non-binary:", round((len(registered) - males - females) / len(registered) * 100,1), "%")
 
 # Print ED ratio
 print("\nED ratio:")
 EDs = {}
-for ppl in registred:
+for ppl in registered:
     if ppl.ed not in EDs:
         EDs[ppl.ed] = 0
     EDs[ppl.ed] += 1
 for ed in EDs:
-    print(" -", ed, ":", round(EDs[ed] / len(registred) * 100,1), "%")
+    print(" -", ed, ":", round(EDs[ed] / len(registered) * 100,1), "%")
 
 # Print sits
 sits = 0
-for ppl in registred:
+for ppl in registered:
     sits += ppl.places
 print("\nSits:", sits)
-print("Remaining sits:", sits - len(registred))
+print("Remaining sits:", sits - len(registered))
+
+# Ask to keep the result
+
+choice = input("\nDo you want to keep the result? (y/N)")
+if choice.lower() in ["y","yes"]:
+    with open("config.yaml", "w") as conf_file:
+        config["registered"] = [ppl.id for ppl in registered]
+        yaml.dump(config, conf_file)
+
+    # Email list
+    print("\nEmail list:")
+    print(", ".join([p.email for p in registered]))
+else:
+    print("Result not saved.")
