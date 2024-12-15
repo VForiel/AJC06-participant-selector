@@ -1,0 +1,12 @@
+places: 35
+organizers:
+  - 2
+  - 6
+conflicts:
+  - 
+    - 6
+    - 7
+groups:
+  -
+    - 17
+    - 20
